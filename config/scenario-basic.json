@@ -1,4 +1,4 @@
-﻿{
+{
   "dns": [
     { "type": "A", "name": "example.com", "address": "10.0.0.10" },
     { "type": "CNAME", "name": "www.example.com", "alias": "example.com" }

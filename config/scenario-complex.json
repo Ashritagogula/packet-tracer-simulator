@@ -1,0 +1,15 @@
+{
+  "dns": [
+    { "type": "A", "name": "service.local", "address": "172.16.5.10" },
+    { "type": "CNAME", "name": "app.local", "alias": "service.local" },
+    { "type": "A", "name": "external.example", "address": "203.0.113.5" }
+  ],
+  "routes": [
+    { "cidr": "172.16.5.0/24", "nextHop": "172.16.5.1", "interface": "eth2", "routerName": "Router-2" },
+    { "cidr": "10.0.0.0/8", "nextHop": "10.0.0.1", "interface": "eth0", "routerName": "Router-1" }
+  ],
+  "firewall": [
+    { "id": 1, "action": "deny", "protocol": "ANY", "source": "192.168.1.0/24", "destPortRange": [0, 65535] },
+    { "id": 2, "action": "allow", "protocol": "TCP", "source": "0.0.0.0/0", "destPortRange": [80, 80] }
+  ]
+}
