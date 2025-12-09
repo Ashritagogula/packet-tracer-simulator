@@ -1,90 +1,143 @@
-# Packet Tracer API
+🛰️ Packet Tracer API — Virtual Network Simulator
 
-This project simulates how a network packet travels through a virtual network.  
-It includes DNS resolution, routing using longest-prefix match, TTL handling, and firewall rule processing.  
-The API returns a hop-by-hop trace showing the decisions taken at each step.
+A fully API-driven simulator that models the journey of a network packet through a virtual network.
+This project demonstrates DNS resolution, IP routing (longest prefix match), firewall rule processing, TTL lifecycle, and packet delivery.
 
----
+🚀 Features
 
-## 📁 Project Structure
+DNS Resolver supporting A and CNAME records
+
+Routing Engine using Longest Prefix Match
+
+Firewall with ordered allow/deny rules
+
+TTL decrement & packet expiry
+
+Hop-by-hop trace
+
+Configurable JSON-based topology
+
+📁 Project Structure
+
+(NOTE: This block is protected — VS Code will NOT change it.)
 
 Gpp-task-3/
+│
 ├── app.js
 ├── dnsConfig.json
 ├── routesConfig.json
 ├── firewallConfig.json
-├── package.json
-└── node_modules/
+│
+├── config/
+│   ├── scenario-basic.json
+│   ├── scenario-complex.json
+│
+├── screenshots/
+│   ├── startingserver.png
+│   ├── successful-trace.png
+│   ├── nxdomain-error.png
+│   ├── firewall-block.png
+│   ├── no-route.png
+│   ├── ttl-expired.png
+│
+└── README.md
 
+🔧 Installation & Setup
+Clone the repository
+git clone https://github.com/Ashritagogula/packet-tracer-simulator.git
+cd packet-tracer-simulator
 
-## 🚀 How to Run
-
-1. Install dependencies:
+Install dependencies
 npm install
-Start the server:
 
-npm start
-Server runs at:
-➡️ http://localhost:3000
-
-Open the browser at http://localhost:3000/ to check the server is running.
+Run server
+node app.js
 
 
-Endpoint: POST /trace
+Expected:
 
-Send a JSON payload describing a packet:
+Packet tracer API running on port 4000
 
+📡 API — POST /trace
+
+Simulates the packet journey across the virtual network.
+
+Request Body
 {
-  "sourceIp": "192.168.1.50",
-  "destination": "www.example.com",
+  "sourceIp": "10.0.0.5",
+  "destination": "example.com",
   "destPort": 80,
   "protocol": "TCP",
-  "ttl": 4
+  "ttl": 5
 }
 
-
-
-Example Successful Response
+Response Example
 [
-  { "location": "DNS Resolver", "action": "CNAME: www.example.com → example.com" },
-  { "location": "DNS Resolver", "action": "Resolved www.example.com to 10.0.0.10" },
-  { "location": "Router-1", "action": "Forwarded towards 10.0.0.10 via next-hop 10.0.0.1 on eth0, TTL now 3" },
-  { "location": "Firewall", "action": "Packet allowed by rule #2" },
-  { "location": "Destination Host", "action": "Packet delivered to 10.0.0.10:80 over TCP" }
+  { "location": "DNS Resolver", "action": "Resolved example.com to 192.168.10.10" },
+  { "location": "Router-1", "action": "Forwarded … TTL now 4" },
+  { "location": "Firewall", "action": "Packet allowed" },
+  { "location": "Destination Host", "action": "Delivered" }
 ]
 
+🧠 How It Works
+1️⃣ DNS Resolution
 
-⚠️ Error Responses
-NXDOMAIN
-[
-  { "location": "DNS Resolver", "action": "NXDOMAIN: unknown.site not found" }
-]
+Supports A + CNAME
 
-Firewall Block
-[
-  { "location": "Firewall", "action": "Packet blocked by rule #1 (protocol=TCP, port=22-22)" }
-]
+Detects CNAME loops
 
-TTL Exceeded
-[
-  { "location": "Router-0", "action": "Time To Live (TTL) exceeded. Packet dropped." }
-]
+NXDOMAIN if no record
 
+2️⃣ Routing — Longest Prefix Match
 
-Configuration Files
+Picks route with highest prefix
+
+If no match → Destination Unreachable
+
+3️⃣ Firewall Processing
+
+Rules have:
+
+action
+
+source CIDR
+
+port range
+
+protocol
+
+First matching rule wins.
+
+4️⃣ TTL Lifecycle
+
+Decreases each hop
+
+TTL = 0 → TTL Exceeded
+
+📘 Example Configs
 dnsConfig.json
 {
   "records": [
-    { "type": "A", "name": "example.com", "address": "10.0.0.10" },
-    { "type": "CNAME", "name": "www.example.com", "alias": "example.com" }
+    { "name": "example.com", "type": "A", "address": "192.168.10.10" },
+    { "name": "www.example.com", "type": "CNAME", "alias": "example.com" }
   ]
 }
 
 routesConfig.json
 {
   "routes": [
-    { "cidr": "10.0.0.0/24", "nextHop": "10.0.0.1", "interface": "eth0", "routerName": "Router-1" },
-    { "cidr": "0.0.0.0/0", "nextHop": "192.168.1.1", "interface": "eth1", "routerName": "Default-Gateway" }
+    {
+      "cidr": "10.0.0.0/24",
+      "nextHop": "10.0.0.1",
+      "interface": "eth0",
+      "routerName": "Router-1"
+    },
+    {
+      "cidr": "0.0.0.0/0",
+      "nextHop": "192.168.1.1",
+      "interface": "eth1",
+      "routerName": "Default-Gateway"
+    }
   ]
 }
 
@@ -95,3 +148,20 @@ firewallConfig.json
     { "id": 2, "action": "allow", "protocol": "TCP", "source": "0.0.0.0/0", "destPortRange": [0, 65535] }
   ]
 }
+
+🖼️ Screenshots
+
+(Note: just make sure files exist. GitHub will show them automatically.)
+
+./screenshots/successful-trace.png
+./screenshots/nxdomain-error.png
+./screenshots/firewall-block.png
+./screenshots/no-route.png
+./screenshots/ttl-expired.png
+
+👩‍💻 Author
+
+Ashrita Gogula
+RHCSA • Oracle Certified • Full Stack Developer Aspirant
+
+END OF README
