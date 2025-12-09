@@ -4,10 +4,62 @@ import fs from "fs";
 const app = express();
 app.use(express.json());
 
-// ---------- Load configs at startup ----------
-const dnsConfig = JSON.parse(fs.readFileSync("./dnsConfig.json", "utf-8"));
-const routesConfig = JSON.parse(fs.readFileSync("./routesConfig.json", "utf-8"));
-const firewallConfig = JSON.parse(fs.readFileSync("./firewallConfig.json", "utf-8"));
+// ---------- Safe JSON loader (removes BOM, prints raw file if parse fails) ----------
+function loadJsonSafe(path) {
+  try {
+    const raw = fs.readFileSync(path, "utf8");
+    const clean = raw.replace(/^\uFEFF/, "").trim();
+    try {
+      return JSON.parse(clean);
+    } catch (err) {
+      console.error(`Failed to parse JSON file: ${path}`);
+      console.error("---- RAW FILE START ----");
+      console.error(raw);
+      console.error("---- RAW FILE END ----");
+      throw err;
+    }
+  } catch (err) {
+    console.error(`Error reading file ${path}:`, err.message || err);
+    throw err;
+  }
+}
+
+// ---------- Load configs at startup (use safe loader) ----------
+const dnsConfigRaw = loadJsonSafe("./dnsConfig.json");
+const routesConfig = loadJsonSafe("./routesConfig.json");
+const firewallConfig = loadJsonSafe("./firewallConfig.json");
+
+// Normalize dnsConfig into an array of records we can work with.
+// Accepts formats:
+//  - { records: [ ... ] }
+//  - [ { name, type, address }, ... ]
+//  - { hosts: { "example.com": "1.2.3.4", ... } }
+let dnsRecords = [];
+
+if (Array.isArray(dnsConfigRaw)) {
+  dnsRecords = dnsConfigRaw;
+} else if (dnsConfigRaw && Array.isArray(dnsConfigRaw.records)) {
+  dnsRecords = dnsConfigRaw.records;
+} else if (dnsConfigRaw && dnsConfigRaw.hosts && typeof dnsConfigRaw.hosts === "object") {
+  dnsRecords = Object.entries(dnsConfigRaw.hosts).map(([name, address]) => ({
+    name,
+    type: "A",
+    address,
+  }));
+} else if (dnsConfigRaw && typeof dnsConfigRaw === "object") {
+  // If top-level values are strings (name -> ip), convert
+  const maybe = Object.keys(dnsConfigRaw).filter(k => typeof dnsConfigRaw[k] === "string");
+  if (maybe.length > 0) {
+    dnsRecords = maybe.map(name => ({ name, type: "A", address: dnsConfigRaw[name] }));
+  } else {
+    dnsRecords = [];
+  }
+} else {
+  dnsRecords = [];
+}
+
+console.log("Loaded dnsConfig (normalized records):");
+console.log(JSON.stringify(dnsRecords, null, 2));
 
 // ---------- Friendly root route ----------
 app.get("/", (req, res) => {
@@ -35,7 +87,7 @@ function ipInCidr(ip, cidr) {
   return (ipInt & mask) === (netInt & mask);
 }
 
-// ---------- DNS Resolver ----------
+// ---------- DNS Resolver (robust) ----------
 function resolveHostname(hostname, trace) {
   let current = hostname;
   const visited = new Set();
@@ -44,37 +96,61 @@ function resolveHostname(hostname, trace) {
     if (visited.has(current)) {
       trace.push({
         location: "DNS Resolver",
-        action: `CNAME loop detected for ${current}`
+        action: `CNAME loop detected for ${current}`,
       });
       return null;
     }
     visited.add(current);
 
-    const record = dnsConfig.records.find(r => r.name === current);
+    // Find a record that matches by 'name' or 'hostname' or 'host'
+    const record = dnsRecords.find(
+      (r) =>
+        (r.name && r.name === current) ||
+        (r.hostname && r.hostname === current) ||
+        (r.host && r.host === current)
+    );
+
     if (!record) {
       trace.push({
         location: "DNS Resolver",
-        action: `NXDOMAIN: ${current} not found`
+        action: `NXDOMAIN: ${current} not found`,
       });
       return null;
     }
 
-    if (record.type === "A") {
+    // If record looks like A (address present) -> resolve
+    if (record.type === "A" || record.address || record.ip || record.value) {
+      const addr = record.address || record.ip || record.value;
+      if (!addr) {
+        trace.push({
+          location: "DNS Resolver",
+          action: `Malformed A record for ${current}`,
+        });
+        return null;
+      }
       trace.push({
         location: "DNS Resolver",
-        action: `Resolved ${hostname} to ${record.address}`
+        action: `Resolved ${hostname} to ${addr}`,
       });
-      return record.address;
-    } else if (record.type === "CNAME") {
+      return addr;
+    } else if (record.type === "CNAME" || record.alias || record.target || record.cname) {
+      const alias = record.alias || record.target || record.cname;
+      if (!alias) {
+        trace.push({
+          location: "DNS Resolver",
+          action: `Malformed CNAME record for ${current}`,
+        });
+        return null;
+      }
       trace.push({
         location: "DNS Resolver",
-        action: `CNAME: ${current} → ${record.alias}`
+        action: `CNAME: ${current} → ${alias}`,
       });
-      current = record.alias;
+      current = alias;
     } else {
       trace.push({
         location: "DNS Resolver",
-        action: `Unsupported DNS type for ${current}`
+        action: `Unsupported DNS record format for ${current}`,
       });
       return null;
     }
@@ -113,13 +189,13 @@ function applyFirewall(packet, trace) {
       if (rule.action.toLowerCase() === "deny") {
         trace.push({
           location: "Firewall",
-          action: `Packet blocked by rule #${rule.id} (protocol=${rule.protocol}, port=${minPort}-${maxPort})`
+          action: `Packet blocked by rule #${rule.id} (protocol=${rule.protocol}, port=${minPort}-${maxPort})`,
         });
         return false;
       } else {
         trace.push({
           location: "Firewall",
-          action: `Packet allowed by rule #${rule.id}`
+          action: `Packet allowed by rule #${rule.id}`,
         });
         return true;
       }
@@ -129,7 +205,7 @@ function applyFirewall(packet, trace) {
   // Default: allow if no rule matched
   trace.push({
     location: "Firewall",
-    action: "No matching rule, default allow"
+    action: "No matching rule, default allow",
   });
   return true;
 }
@@ -148,7 +224,7 @@ app.post("/trace", (req, res) => {
   ) {
     return res.status(400).json({
       error:
-        "Missing or invalid fields. Required: sourceIp (string), destination (string), destPort (number), protocol (string), ttl (number)."
+        "Missing or invalid fields. Required: sourceIp (string), destination (string), destPort (number), protocol (string), ttl (number).",
     });
   }
 
@@ -158,7 +234,7 @@ app.post("/trace", (req, res) => {
     destIp: null,
     destPort,
     protocol,
-    ttl
+    ttl,
   };
 
   // 1️⃣ DNS Resolution (if destination is hostname)
@@ -167,7 +243,7 @@ app.post("/trace", (req, res) => {
     packet.destIp = destination;
     trace.push({
       location: "DNS Resolver",
-      action: `Destination is already an IP: ${destination}`
+      action: `Destination is already an IP: ${destination}`,
     });
   } else {
     const resolved = resolveHostname(destination, trace);
@@ -186,7 +262,7 @@ app.post("/trace", (req, res) => {
     if (packet.ttl <= 0) {
       trace.push({
         location: `Router-${currentHop}`,
-        action: "Time To Live (TTL) exceeded. Packet dropped."
+        action: "Time To Live (TTL) exceeded. Packet dropped.",
       });
       break;
     }
@@ -195,7 +271,7 @@ app.post("/trace", (req, res) => {
     if (!route) {
       trace.push({
         location: `Router-${currentHop}`,
-        action: `No route to host ${packet.destIp}. Destination unreachable.`
+        action: `No route to host ${packet.destIp}. Destination unreachable.`,
       });
       break;
     }
@@ -206,7 +282,7 @@ app.post("/trace", (req, res) => {
 
     trace.push({
       location: route.routerName || `Router-${currentHop}`,
-      action: `Forwarded towards ${packet.destIp} via next-hop ${route.nextHop} on ${route.interface}, TTL now ${packet.ttl}`
+      action: `Forwarded towards ${packet.destIp} via next-hop ${route.nextHop} on ${route.interface}, TTL now ${packet.ttl}`,
     });
 
     // Firewall check at this hop
@@ -219,7 +295,7 @@ app.post("/trace", (req, res) => {
     // For this simulator, assume after one successful route+firewall we reach destination
     trace.push({
       location: "Destination Host",
-      action: `Packet delivered to ${packet.destIp}:${packet.destPort} over ${packet.protocol}`
+      action: `Packet delivered to ${packet.destIp}:${packet.destPort} over ${packet.protocol}`,
     });
     break;
   }

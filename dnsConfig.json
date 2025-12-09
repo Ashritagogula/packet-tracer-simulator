@@ -1,14 +1,7 @@
 ﻿{
-  "dns": [
-    { "type": "A", "name": "example.com", "address": "10.0.0.10" },
-    { "type": "CNAME", "name": "www.example.com", "alias": "example.com" }
-  ],
-  "routes": [
-    { "cidr": "10.0.0.0/24", "nextHop": "10.0.0.1", "interface": "eth0", "routerName": "Router-1" },
-    { "cidr": "0.0.0.0/0", "nextHop": "192.168.1.1", "interface": "eth1", "routerName": "Default-Gateway" }
-  ],
-  "firewall": [
-    { "id": 1, "action": "deny", "protocol": "TCP", "source": "0.0.0.0/0", "destPortRange": [22, 22] },
-    { "id": 2, "action": "allow", "protocol": "TCP", "source": "0.0.0.0/0", "destPortRange": [0, 65535] }
+  "records": [
+    { "name": "example.com", "type": "A", "address": "192.168.10.10" },
+    { "name": "www.example.com", "type": "CNAME", "alias": "example.com" },
+    { "name": "alias.test", "type": "CNAME", "alias": "www.example.com" }
   ]
 }
