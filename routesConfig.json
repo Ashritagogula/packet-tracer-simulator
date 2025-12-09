@@ -1,0 +1,16 @@
+{
+  "routes": [
+    {
+      "cidr": "10.0.0.0/24",
+      "nextHop": "10.0.0.1",
+      "interface": "eth0",
+      "routerName": "Router-1"
+    },
+    {
+      "cidr": "0.0.0.0/0",
+      "nextHop": "192.168.1.1",
+      "interface": "eth1",
+      "routerName": "Default-Gateway"
+    }
+  ]
+}
